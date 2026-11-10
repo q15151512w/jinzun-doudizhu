@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>金樽牌局 · 斗地主</title>
+<meta name="description" content="金樽牌局 — 一桌牌，三人心。完整斗地主规则、AI 对手、实时合成古风音乐。">
+<meta name="theme-color" content="#061611">
+<meta property="og:title" content="金樽牌局 · 斗地主">
+<meta property="og:description" content="一桌牌，三人心。完整斗地主规则、AI 对手与实时合成古风音乐。">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://q15151512w.github.io/jinzun-doudizhu/">
+<meta property="og:image" content="https://q15151512w.github.io/jinzun-doudizhu/screenshots/cover.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='18' fill='%230a1f1a'/%3E%3Crect x='6' y='6' width='88' height='88' rx='12' fill='none' stroke='%23d9b878' stroke-width='2'/%3E%3Ctext x='50' y='72' font-size='56' text-anchor='middle' fill='%23d9b878' font-family='serif'%3E金%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=Noto+Serif+SC:wght@400;600;700;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app" id="app">
+  <div class="grain" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-seal">金</div>
+      <div class="brand-text">
+        <h1>金樽牌局</h1>
+        <p>DOU DIZHU · NO. 001</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <div class="chip-wallet" title="你的玉筹">
+        <span class="chip-gem">◆</span>
+        <span id="chips">2,000</span>
+      </div>
+      <button class="icon-btn" id="btn-guide" title="玩法说明" aria-label="玩法说明">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.3 2.4c-.6.3-.9.8-.9 1.4v.4"/><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-sfx" title="音效" aria-label="音效开关">
+        <svg class="ic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path d="M15.2 8.8a4.6 4.6 0 0 1 0 6.4M17.8 6.4a8 8 0 0 1 0 11.2"/></svg>
+        <svg class="ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 9.5v5h3.2L12 18.5v-13L7.2 9.5H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+      </button>
+      <button class="icon-btn" id="btn-music" title="音乐" aria-label="音乐开关">
+        <svg class="ic-on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V6l11-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="15" r="2.5"/></svg>
+        <svg class="ic-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 18V6l11-2v11"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="15" r="2.5"/><path d="M4 4l16 16"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="table" id="table">
+    <div class="table-felt" aria-hidden="true"></div>
+    <div class="table-rim" aria-hidden="true"></div>
+    <div class="table-emblem" aria-hidden="true">
+      <span class="emblem-char">斗</span>
+      <span class="emblem-caption">JINZUN · PARLOR</span>
+    </div>
+
+    <div class="bottom-cards" id="bottomCards">
+      <span class="bc-label">底牌</span>
+      <div class="bc-row" id="bcRow"></div>
+    </div>
+
+    <div class="center-hud">
+      <div class="hud-item"><span class="hud-k">底分</span><span class="hud-v" id="baseScore">—</span></div>
+      <span class="hud-sep"></span>
+      <div class="hud-item"><span class="hud-k">倍数</span><span class="hud-v gold" id="multiplier">×1</span></div>
+    </div>
+
+    <div class="opponent left" id="oppLeft">
+      <div class="player-id">
+        <div class="avatar" id="oppLeftAvatar">
+          <span class="avatar-face">听</span>
+          <span class="turn-ring"></span>
+        </div>
+        <div class="p-meta">
+          <div class="p-name" id="oppLeftName">听雨</div>
+          <div class="p-role" id="oppLeftRole">农民</div>
+        </div>
+      </div>
+      <div class="opp-cards" id="oppLeftCards">
+        <div class="back-stack"><i></i><i></i><i></i></div>
+        <span class="count-pill"><b id="oppLeftCount">17</b><em>张</em></span>
+      </div>
+      <div class="speech" id="oppLeftSpeech"></div>
+    </div>
+
+    <div class="opponent right" id="oppRight">
+      <div class="player-id">
+        <div class="avatar" id="oppRightAvatar">
+          <span class="avatar-face">松</span>
+          <span class="turn-ring"></span>
+        </div>
+        <div class="p-meta">
+          <div class="p-name" id="oppRightName">松风</div>
+          <div class="p-role" id="oppRightRole">农民</div>
+        </div>
+      </div>
+      <div class="opp-cards" id="oppRightCards">
+        <div class="back-stack"><i></i><i></i><i></i></div>
+        <span class="count-pill"><b id="oppRightCount">17</b><em>张</em></span>
+      </div>
+      <div class="speech" id="oppRightSpeech"></div>
+    </div>
+
+    <div class="play-zone play-left" id="playLeft"></div>
+    <div class="play-zone play-right" id="playRight"></div>
+    <div class="play-zone play-human" id="playHuman"></div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <section class="me-panel">
+      <div class="me-bar">
+        <div class="me-id">
+          <div class="avatar small" id="meAvatar">
+            <span class="avatar-face">你</span>
+            <span class="turn-ring"></span>
+          </div>
+          <div class="p-meta">
+            <div class="p-name">你 <span class="p-role inline" id="meRole">农民</span></div>
+            <div class="me-chips">玉筹 <b id="meChips">2,000</b></div>
+          </div>
+        </div>
+        <div class="actions" id="actions"></div>
+        <div class="turn-status" id="turnStatus"></div>
+      </div>
+      <div class="hand-wrap">
+        <div class="hand" id="hand"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 开局 -->
+  <div class="overlay start-overlay" id="startOverlay">
+    <div class="start-emblem" aria-hidden="true"><span>斗</span></div>
+    <div class="start-inner">
+      <p class="eyebrow">A GAME OF WITS&nbsp;&nbsp;·&nbsp;&nbsp;三人成局</p>
+      <h2 class="game-title">斗地主</h2>
+      <div class="title-rule"><span></span><em>金樽牌局</em><span></span></div>
+      <p class="start-copy">一桌牌，三人心。叫分夺地主，出尽手中牌。</p>
+      <div class="start-chips">
+        <div><b>54</b><em>张牌</em></div><div><b>3</b><em>位玩家</em></div><div><b>1</b><em>位地主</em></div>
+      </div>
+      <button class="btn primary large" id="btn-start">入 座 开 局</button>
+      <p class="start-hint">点击开启音乐与牌局 · 建议佩戴耳机</p>
+      <button class="link-btn" id="btn-start-guide">查看玩法说明</button>
+    </div>
+  </div>
+
+  <!-- 玩法说明 -->
+  <div class="overlay guide-overlay" id="guideOverlay">
+    <div class="guide-card">
+      <button class="icon-btn close-btn" id="btn-close-guide" aria-label="关闭">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+      <p class="eyebrow">RULES OF THE HOUSE</p>
+      <h2>玩法说明</h2>
+      <div class="guide-body">
+        <section>
+          <h3>牌型</h3>
+          <ul>
+            <li><b>单张 / 对子 / 三张</b> — 相同点数的 1、2、3 张。</li>
+            <li><b>三带一 / 三带二</b> — 三张 + 一张单牌或一对。</li>
+            <li><b>顺子</b> — 5 张以上连续单牌（3 至 A，不含 2 与王）。</li>
+            <li><b>连对</b> — 3 对以上连续对子（3 至 A）。</li>
+            <li><b>飞机</b> — 2 组以上连续三张，可带同数量的单牌或对子。</li>
+            <li><b>四带二 / 四带两对</b> — 四张相同 + 两张单牌或两对。</li>
+            <li><b>炸弹 / 王炸</b> — 四张相同 / 双王，可压任意牌型。</li>
+          </ul>
+        </section>
+        <section>
+          <h3>大小</h3>
+          <p>3 &lt; 4 &lt; … &lt; K &lt; A &lt; 2 &lt; 小王 &lt; 大王。同牌型同张数比点数，炸弹压一切，王炸最大。</p>
+        </section>
+        <section>
+          <h3>流程</h3>
+          <p>依次叫分 1 / 2 / 3，最高者成为地主并拿走三张底牌。地主先出牌，率先出完手牌的一方获胜。</p>
+        </section>
+        <section>
+          <h3>计分</h3>
+          <p>得分 = 底分 × 倍数。每打出炸弹或王炸，倍数翻倍；春天（农民未出过牌）或反春天再翻倍。</p>
+        </section>
+      </div>
+      <button class="btn primary" id="btn-guide-ok">知道了</button>
+    </div>
+  </div>
+
+  <!-- 结算 -->
+  <div class="overlay result-overlay" id="resultOverlay">
+    <div class="confetti" id="confetti" aria-hidden="true"></div>
+    <div class="result-card">
+      <div class="result-crest">金樽</div>
+      <p class="eyebrow" id="resultKicker">本局终了</p>
+      <h2 id="resultTitle">地主胜</h2>
+      <p class="result-sub" id="resultSub">你赢了</p>
+      <div class="result-stats">
+        <div><span>底分</span><b id="rsBase">3</b></div>
+        <div><span>倍数</span><b id="rsMult">×4</b></div>
+        <div><span>春天</span><b id="rsSpring">—</b></div>
+      </div>
+      <div class="result-delta" id="resultDelta">+60</div>
+      <div class="result-actions">
+        <button class="btn primary" id="btn-again">再来一局</button>
+        <button class="btn ghost" id="btn-lobby">回到大厅</button>
+      </div>
+      <p class="result-record" id="resultRecord"></p>
+    </div>
+  </div>
+</div>
+
+<script src="js/cards.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
