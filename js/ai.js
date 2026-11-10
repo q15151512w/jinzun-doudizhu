@@ -1,6 +1,6 @@
 /* ============================================================
    金樽牌局 · AI 对手
-   叫分评估 / 跟牌策略 / 农民配合 / 领出选择
+   叫地主 / 抢地主评估 / 跟牌策略 / 农民配合 / 领出选择
    ============================================================ */
 (function (global) {
   'use strict';
@@ -46,17 +46,59 @@
     return score;
   }
 
-  /** 叫分：返回 0（不叫）或 1/2/3 */
+  /** 兼容旧的自对弈测试：返回 0/1/2/3 */
   function decideBid(hand, highestBid) {
     const s = evaluateHand(hand);
     let want = 0;
     if (s >= 8) want = 3;
     else if (s >= 6) want = 2;
     else if (s >= 4.2) want = 1;
-
-    // 偶尔保守
     if (want > 0 && Math.random() < 0.1) want -= 1;
     return want > highestBid ? want : 0;
+  }
+
+  /** 叫地主：只有一次机会，牌好就叫 */
+  function decideCall(hand, lastChance) {
+    const s = evaluateHand(hand);
+    const threshold = lastChance ? 3.2 : 4.3;
+    if (s >= threshold + 0.8) return true;
+    if (s >= threshold) return Math.random() < 0.6;
+    return false;
+  }
+
+  /** 抢地主：抢的人越多，门槛越高 */
+  function decideRob(hand, robCount) {
+    const s = evaluateHand(hand);
+    const threshold = 5.2 + robCount * 1.4;
+    return s >= threshold - Math.random() * 0.7;
+  }
+
+  /** 是否从四张相同的牌里抽了一部分（拆炸弹） */
+  function usesPartialBomb(hand, move) {
+    const groups = C.groupCounts(hand);
+    const used = new Map();
+    for (const c of move.cards) used.set(c.rank, (used.get(c.rank) || 0) + 1);
+    for (const [rank, count] of used) {
+      if (groups.get(rank).length === 4 && count < 4) return true;
+    }
+    return false;
+  }
+
+  /** 拆散对子 / 三张 / 炸弹的代价 */
+  function splitPenalty(hand, move) {
+    const groups = C.groupCounts(hand);
+    const used = new Map();
+    for (const c of move.cards) used.set(c.rank, (used.get(c.rank) || 0) + 1);
+
+    let penalty = 0;
+    for (const [rank, count] of used) {
+      const total = groups.get(rank).length;
+      if (count >= total) continue;
+      if (total === 4) penalty += 5;
+      else if (total === 3) penalty += 2;
+      else if (total === 2) penalty += 1;
+    }
+    return penalty;
   }
 
   function minEnemyCount(ctx) {
@@ -66,17 +108,6 @@
       if (!isTeammate(i, ctx.self, ctx.landlord)) min = Math.min(min, ctx.counts[i]);
     }
     return min;
-  }
-
-  /** 该出牌是否拆了自己手上的炸弹 */
-  function splitsBomb(hand, move) {
-    const groups = C.groupCounts(hand);
-    const used = new Map();
-    for (const c of move.cards) used.set(c.rank, (used.get(c.rank) || 0) + 1);
-    for (const [rank, count] of used) {
-      if (groups.get(rank).length === 4 && count < 4) return true;
-    }
-    return false;
   }
 
   /**
@@ -96,28 +127,56 @@
     const finish = candidates.find((m) => m.cards.length === hand.length);
     if (finish) return finish;
 
+    const next = (ctx.self + 1) % 3;
+    const nextIsEnemy = !isTeammate(next, ctx.self, ctx.landlord);
+    const nextCount = ctx.counts[next];
+
     // ---------- 跟牌 ----------
     if (lastPlay) {
       const fromTeammate =
         ctx.lastPlayer !== ctx.self &&
         isTeammate(ctx.lastPlayer, ctx.self, ctx.landlord);
-      if (fromTeammate) return null;
+
+      if (fromTeammate) {
+        // 队友出小单张、下家地主只剩 1 张：用大单张顶住
+        if (
+          nextIsEnemy &&
+          nextCount === 1 &&
+          lastInfo.type === 'single' &&
+          lastInfo.rank < 15
+        ) {
+          const singles = candidates.filter((m) => m.info.type === 'single');
+          if (singles.length) {
+            singles.sort((a, b) => b.info.rank - a.info.rank);
+            return singles[0];
+          }
+        }
+        return null;
+      }
 
       const nonBomb = candidates.filter(
         (m) => m.info.type !== 'bomb' && m.info.type !== 'rocket'
       );
+      const enemyMin = minEnemyCount(ctx);
 
       if (nonBomb.length) {
-        const safe = nonBomb.filter((m) => !splitsBomb(hand, m));
-        const pool = safe.length ? safe : nonBomb;
-        pool.sort((a, b) => C.movePower(a) - C.movePower(b));
-        return pool[0];
+        const keepBomb = nonBomb.filter((m) => !usesPartialBomb(hand, m));
+        const pool = keepBomb.length ? keepBomb : nonBomb;
+        const scored = pool.map((m) => {
+          let score = C.movePower(m);
+          // 尽量不拆对子 / 三张 / 炸弹
+          score += splitPenalty(hand, m) * 1.8;
+          // 不轻易把 2 和王当普通牌打出去
+          if (m.info.rank >= 15 && enemyMin > 3) score += 1.6;
+          return { m, score };
+        }).sort((a, b) => a.score - b.score);
+        return scored[0].m;
       }
 
       // 只剩炸弹 / 王炸
       const bombs = candidates.slice().sort((a, b) => C.movePower(a) - C.movePower(b));
-      const enemyClose = minEnemyCount(ctx) <= 2;
-      if (enemyClose || hand.length <= 5 || Math.random() < 0.08) {
+      const enemyClose = enemyMin <= 2;
+      if (enemyClose || hand.length <= 6 || Math.random() < 0.1) {
         return bombs[0];
       }
       return null;
@@ -126,16 +185,35 @@
     // ---------- 领出 ----------
     const all = C.generateMoves(hand);
     if (!all.length) return null;
-    let pool = all.filter((m) => m.info.type !== 'bomb' && m.info.type !== 'rocket');
+
+    // 炸弹留作关键回合；不主动拆炸弹、不用四带二白白消耗炸弹
+    let pool = all.filter(
+      (m) =>
+        !['bomb', 'rocket', 'four2', 'four2p'].includes(m.info.type) &&
+        !usesPartialBomb(hand, m)
+    );
+    if (!pool.length) {
+      pool = all.filter((m) => m.info.type !== 'bomb' && m.info.type !== 'rocket');
+    }
     if (!pool.length) pool = all;
 
-    // 下家是敌人且只剩一张牌：尽量不出单张
-    const next = (ctx.self + 1) % 3;
-    const nextIsEnemy = !isTeammate(next, ctx.self, ctx.landlord);
-    if (nextIsEnemy && ctx.counts[next] === 1) {
+    // 下家是敌人且只剩一张牌：避免送单张；只剩单张时出最大的
+    if (nextIsEnemy && nextCount === 1) {
       const multi = pool.filter((m) => m.cards.length > 1);
-      if (multi.length) pool = multi;
+      if (multi.length) {
+        pool = multi;
+      } else {
+        const singles = pool.filter((m) => m.info.type === 'single');
+        if (singles.length) {
+          singles.sort((a, b) => b.info.rank - a.info.rank);
+          return singles[0];
+        }
+      }
     }
+
+    const enemies = [0, 1, 2].filter(
+      (i) => i !== ctx.self && !isTeammate(i, ctx.self, ctx.landlord)
+    );
 
     let best = null;
     let bestScore = Infinity;
@@ -143,14 +221,22 @@
       const type = m.info.type;
       let score = m.info.rank - m.cards.length * 2.1;
 
+      // 拆牌代价
+      score += splitPenalty(hand, m) * 1.2;
       // 大牌留着控场
-      if (m.info.rank >= 15) score += 7;
+      if (m.info.rank >= 15) score += 6;
       // 早出三带
       if (type === 'triple1' || type === 'triple2') score -= 1.4;
-      // 别拆炸弹
-      if (splitsBomb(hand, m)) score += 4;
+      // 别把炸弹拆成「四带二」随手打掉
+      if (type === 'four2' || type === 'four2p') score += 4;
 
-      score += Math.random() * 1.4;
+      // 对手剩余牌数正好等于本次出牌张数：别送对手走完
+      for (const e of enemies) {
+        const c = ctx.counts[e];
+        if (c > 0 && c === m.cards.length) score += 2.5;
+      }
+
+      score += Math.random() * 1.0;
       if (score < bestScore) {
         bestScore = score;
         best = m;
@@ -174,6 +260,8 @@
   global.AI = {
     evaluateHand,
     decideBid,
+    decideCall,
+    decideRob,
     choosePlay,
     thinkTime,
     isTeammate

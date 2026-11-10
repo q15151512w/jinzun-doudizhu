@@ -61,6 +61,11 @@
     return cards.slice().sort((a, b) => (a.rank - b.rank) || (a.order - b.order));
   }
 
+  /** 手牌展示顺序：大 → 小（同点数按 ♠♥♣♦） */
+  function sortCardsDesc(cards) {
+    return cards.slice().sort((a, b) => (b.rank - a.rank) || (a.order - b.order));
+  }
+
   function groupCounts(cards) {
     const groups = new Map();
     for (const c of cards) {
@@ -370,6 +375,7 @@
     createDeck,
     shuffle,
     sortCards,
+    sortCardsDesc,
     groupCounts,
     analyze,
     beats,

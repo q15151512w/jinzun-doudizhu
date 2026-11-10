@@ -1,6 +1,6 @@
 /* ============================================================
    金樽牌局 · 游戏主流程
-   叫分 → 出牌 → 结算，渲染、动效与本地存档
+   叫地主 / 抢地主 → 出牌 → 结算，渲染、动效与本地存档
    ============================================================ */
 (function () {
   'use strict';
@@ -34,9 +34,13 @@
     current: -1,
     lastPlay: null,
     consecutivePasses: 0,
-    bidHighest: 0,
-    bidWinner: -1,
-    bidCount: 0,
+    bidPhase: 'call',               // call | rob | null
+    callWinner: -1,
+    provisional: -1,
+    robQueue: [],
+    robIndex: 0,
+    robCount: 0,
+    callTurns: 0,
     selected: new Set(),
     hints: [],
     hintIndex: 0,
@@ -130,19 +134,25 @@
   }
 
   function renderHand(animateDeal) {
-    const hand = state.players[HUMAN].hand;
+    // 手牌展示为大 → 小
+    const hand = C.sortCardsDesc(state.players[HUMAN].hand);
     const n = hand.length;
     dom.hand.classList.toggle('deal-anim', !!animateDeal);
     dom.hand.innerHTML = hand.map((card, i) => {
       const t = n <= 1 ? 0 : i / (n - 1) - 0.5;
       const rot = t * Math.min(11, n * 0.62);
       const dy = Math.abs(t) * 8;
-      const style = `--rot:${rot.toFixed(2)}deg;--dy:${dy.toFixed(1)}px;--deal-delay:${Math.min(i * 28, 480)}ms;z-index:${i + 1}`;
+      const style = `--rot:${rot.toFixed(2)}deg;--dy:${dy.toFixed(1)}px;--deal-delay:${Math.min(i * 28, 480)}ms;--zi:${i + 1};z-index:${i + 1}`;
       let extra = '';
       if (state.selected.has(card.id)) extra += ' selected';
       if (state.fresh.has(card.id)) extra += ' fresh';
       return cardMarkup(card, { style, extra });
     }).join('');
+    updateHandSelectionClass();
+  }
+
+  function updateHandSelectionClass() {
+    dom.hand.classList.toggle('has-selection', state.selected.size > 0);
   }
 
   function syncSelection() {
@@ -150,6 +160,7 @@
       const id = Number(el.dataset.id);
       el.classList.toggle('selected', state.selected.has(id));
     });
+    updateHandSelectionClass();
     updatePlayButtons();
     updateSelectionStatus();
   }
@@ -188,7 +199,8 @@
   }
 
   function renderBottomCards(faceUp) {
-    dom.bcRow.innerHTML = state.bottom.map((card) => {
+    const cards = faceUp ? C.sortCardsDesc(state.bottom) : state.bottom;
+    dom.bcRow.innerHTML = cards.map((card) => {
       if (!faceUp) return '<div class="card-back"></div>';
       return cardMarkup(card);
     }).join('');
@@ -228,6 +240,7 @@
   function showPlay(idx, cards, info) {
     const zone = playZones[idx];
     if (!zone) return;
+    zone.classList.toggle('long-combo', cards.length >= 9);
     const danger = info.type === 'bomb' || info.type === 'rocket';
     zone.innerHTML = `
       <div class="play-cards">${C.sortCards(cards).map((c) => cardMarkup(c)).join('')}</div>
@@ -235,7 +248,10 @@
   }
 
   function clearPlayZone(idx) {
-    if (playZones[idx]) playZones[idx].innerHTML = '';
+    if (playZones[idx]) {
+      playZones[idx].innerHTML = '';
+      playZones[idx].classList.remove('long-combo');
+    }
   }
 
   function clearAllZones() {
@@ -249,19 +265,27 @@
 
   /* ------------------------- action bar ------------------------- */
 
-  function renderBidActions() {
-    if (state.phase !== 'bidding' || state.current !== HUMAN) {
+  function renderCallActions() {
+    if (state.phase !== 'bidding' || state.bidPhase !== 'call' || state.current !== HUMAN) {
       dom.actions.innerHTML = '';
       return;
     }
-    const max = state.bidHighest;
-    dom.actions.innerHTML = [
-      `<button class="btn ghost" data-bid="0">不叫</button>`,
-      [1, 2, 3].map((n) =>
-        `<button class="btn ${n === 3 ? 'primary' : 'ghost'} bid-btn" data-bid="${n}" ${n <= max ? 'disabled' : ''}>${n}<small>分</small></button>`
-      ).join('')
-    ].join('');
-    setTurnStatus(`轮到你叫分${max ? ` · 当前最高 ${max} 分` : ''}`, true);
+    dom.actions.innerHTML = `
+      <button class="btn ghost" data-call="0">不叫</button>
+      <button class="btn primary" data-call="1">叫地主</button>`;
+    setTurnStatus('轮到你叫地主', true);
+    S.turn();
+  }
+
+  function renderRobActions() {
+    if (state.phase !== 'bidding' || state.bidPhase !== 'rob' || state.current !== HUMAN) {
+      dom.actions.innerHTML = '';
+      return;
+    }
+    dom.actions.innerHTML = `
+      <button class="btn ghost" data-rob="0">不抢</button>
+      <button class="btn primary" data-rob="1">抢地主</button>`;
+    setTurnStatus(`轮到你抢地主 · 当前 ×${state.multiplier}`, true);
     S.turn();
   }
 
@@ -323,9 +347,13 @@
     state.multiplier = 1;
     state.lastPlay = null;
     state.consecutivePasses = 0;
-    state.bidHighest = 0;
-    state.bidWinner = -1;
-    state.bidCount = 0;
+    state.bidPhase = 'call';
+    state.callWinner = -1;
+    state.provisional = -1;
+    state.robQueue = [];
+    state.robIndex = 0;
+    state.robCount = 0;
+    state.callTurns = 0;
     state.selected.clear();
     state.hints = [];
     state.hintIndex = 0;
@@ -353,70 +381,146 @@
     const starter = Math.floor(Math.random() * 3);
     state.current = starter;
     setActive(starter);
-    setTurnStatus(`${NAMES[starter]} 先叫分`, false);
+    setTurnStatus(`${NAMES[starter]} 先叫地主`, false);
 
     // 发牌音效
     [0, 130, 260, 390].forEach((t) => setTimeout(() => S.deal(), t));
 
-    showToast('叫分开始 · 三分即为地主');
+    showToast('叫地主开始 · 抢地主每次翻倍');
 
     if (starter === HUMAN) {
-      renderBidActions();
+      renderCallActions();
     } else {
-      turnStatusForAIBid(starter);
-      scheduleAIBid(starter);
+      setTurnStatus(`${NAMES[starter]} 正在考虑叫地主…`, false);
+      scheduleAICall(starter);
     }
   }
 
-  function turnStatusForAIBid(idx) {
-    setTurnStatus(`${NAMES[idx]} 正在叫分…`, false);
-  }
-
-  function scheduleAIBid(idx) {
+  function scheduleAICall(idx) {
     later(() => {
-      if (state.phase !== 'bidding' || state.current !== idx) return;
-      const wanted = AI.decideBid(state.players[idx].hand, state.bidHighest);
-      doBid(idx, wanted);
+      if (state.phase !== 'bidding' || state.bidPhase !== 'call' || state.current !== idx) return;
+      const wants = AI.decideCall(state.players[idx].hand, state.callTurns === 2);
+      doCall(idx, wants);
     }, 750 + Math.random() * 900);
   }
 
-  function doBid(idx, score) {
-    if (state.phase !== 'bidding') return;
-    state.bidCount++;
+  function doCall(idx, wantsCall) {
+    if (state.phase !== 'bidding' || state.bidPhase !== 'call') return;
+    state.callTurns++;
 
-    if (score > 0 && score > state.bidHighest) {
-      state.bidHighest = score;
-      state.bidWinner = idx;
-      S.bid(score);
-      say(idx, score === 3 ? '叫三分！' : `叫 ${score} 分`);
-    } else {
-      score = 0;
-      S.pass();
-      say(idx, '不叫');
+    if (wantsCall) {
+      state.callWinner = idx;
+      state.provisional = idx;
+      state.bidPhase = 'rob';
+      state.baseScore = 3;
+      state.multiplier = 1;
+      state.robQueue = [(idx + 1) % 3, (idx + 2) % 3];
+      state.robIndex = 0;
+      state.robCount = 0;
+      updateHUD();
+
+      S.bid(3);
+      say(idx, '叫地主！', 2100);
+      if (idx === HUMAN) showToast('你叫了地主，等待其他玩家抢地主');
+
+      dom.actions.innerHTML = '';
+      state.current = state.robQueue[0];
+      setActive(state.current);
+      setTurnStatus(`${NAMES[idx]} 叫地主 · 进入抢地主`, false);
+      later(promptBidTurn, 780);
+      return;
     }
 
-    if (score === 3 || state.bidCount >= 3) {
+    S.pass();
+    say(idx, '不叫');
+    if (idx === HUMAN) showToast('你选择不叫');
+
+    if (state.callTurns >= 3) {
+      state.phase = 'between';
+      state.bidPhase = null;
+      setActive(-1);
       dom.actions.innerHTML = '';
-      setTurnStatus('揭晓地主…', false);
-      later(finishBidding, 800);
+      setTurnStatus('无人叫地主，重新发牌…', false);
+      showToast('无人叫地主 · 重新发牌');
+      later(newRound, 1700);
       return;
     }
 
     state.current = (state.current + 1) % 3;
     setActive(state.current);
-    if (state.current === HUMAN) {
-      renderBidActions();
+    dom.actions.innerHTML = '';
+    later(promptBidTurn, 480);
+  }
+
+  function promptBidTurn() {
+    if (state.phase !== 'bidding') return;
+
+    if (state.bidPhase === 'call') {
+      if (state.current === HUMAN) {
+        renderCallActions();
+      } else {
+        setTurnStatus(`${NAMES[state.current]} 正在考虑叫地主…`, false);
+        scheduleAICall(state.current);
+      }
+      return;
+    }
+
+    if (state.bidPhase === 'rob') {
+      const idx = state.current;
+      if (idx === HUMAN) {
+        renderRobActions();
+      } else {
+        setTurnStatus(`${NAMES[idx]} 正在考虑抢地主…`, false);
+        scheduleAIRob(idx);
+      }
+    }
+  }
+
+  function scheduleAIRob(idx) {
+    later(() => {
+      if (state.phase !== 'bidding' || state.bidPhase !== 'rob' || state.current !== idx) return;
+      const wants = AI.decideRob(state.players[idx].hand, state.robCount);
+      doRob(idx, wants);
+    }, 800 + Math.random() * 900);
+  }
+
+  function doRob(idx, wantsRob) {
+    if (state.phase !== 'bidding' || state.bidPhase !== 'rob' || state.current !== idx) return;
+
+    if (wantsRob) {
+      state.robCount++;
+      state.multiplier *= 2;
+      state.provisional = idx;
+      updateHUD();
+      S.bid(3);
+      say(idx, '抢地主！', 2100);
+      if (idx === HUMAN) showToast('你抢了地主，倍数翻倍');
     } else {
-      dom.actions.innerHTML = '';
-      turnStatusForAIBid(state.current);
-      scheduleAIBid(state.current);
+      S.pass();
+      say(idx, '不抢');
+      if (idx === HUMAN) showToast('你选择不抢');
+    }
+
+    dom.actions.innerHTML = '';
+    state.robIndex++;
+
+    if (state.robIndex < state.robQueue.length) {
+      state.current = state.robQueue[state.robIndex];
+      setActive(state.current);
+      later(promptBidTurn, 650);
+    } else {
+      state.bidPhase = null;
+      setActive(state.provisional);
+      setTurnStatus('揭晓地主…', false);
+      later(finishBidding, 900);
     }
   }
 
   function finishBidding() {
     if (state.phase !== 'bidding') return;
 
-    if (state.bidWinner < 0) {
+    const winner = state.provisional;
+    if (winner < 0) {
       state.phase = 'between';
       setActive(-1);
       setTurnStatus('无人叫地主，重新发牌…', false);
@@ -425,10 +529,9 @@
       return;
     }
 
-    const winner = state.bidWinner;
     state.phase = 'waiting';
     state.landlord = winner;
-    state.baseScore = state.bidHighest;
+    state.baseScore = 3;
     state.players[winner].landlord = true;
     state.players[winner].hand = C.sortCards([...state.players[winner].hand, ...state.bottom]);
 
@@ -441,7 +544,10 @@
     dom.actions.innerHTML = '';
     setActive(winner);
     setTurnStatus(`${NAMES[winner]} 成为地主`, false);
-    showToast(`${NAMES[winner]} 成为地主 · 底分 ${state.baseScore}`);
+    showToast(
+      `${NAMES[winner]} 成为地主 · 底分 3 · 倍数 ×${state.multiplier}` +
+      (state.robCount ? `（抢地主 ${state.robCount} 次）` : '')
+    );
     S.chip();
 
     later(() => {
@@ -873,10 +979,16 @@
     dom.actions.addEventListener('click', (e) => {
       const btn = e.target.closest('button');
       if (!btn || btn.disabled) return;
-      if (btn.dataset.bid !== undefined) {
-        if (state.phase !== 'bidding' || state.current !== HUMAN) return;
+      if (btn.dataset.call !== undefined) {
+        if (state.phase !== 'bidding' || state.bidPhase !== 'call' || state.current !== HUMAN) return;
         S.click();
-        doBid(HUMAN, Number(btn.dataset.bid));
+        doCall(HUMAN, btn.dataset.call === '1');
+        return;
+      }
+      if (btn.dataset.rob !== undefined) {
+        if (state.phase !== 'bidding' || state.bidPhase !== 'rob' || state.current !== HUMAN) return;
+        S.click();
+        doRob(HUMAN, btn.dataset.rob === '1');
         return;
       }
       const act = btn.dataset.act;
@@ -893,6 +1005,7 @@
       if (state.selected.has(id)) state.selected.delete(id);
       else state.selected.add(id);
       el.classList.toggle('selected', state.selected.has(id));
+      updateHandSelectionClass();
       S.select();
       updatePlayButtons();
       updateSelectionStatus();
