@@ -75,6 +75,33 @@
     return s >= threshold - Math.random() * 0.7;
   }
 
+  /** 花牌是否能补齐炸弹：有三张同点 + 花牌时返回该点数，否则 -1 */
+  function wildBombRank(hand) {
+    if (!hand.some((c) => c.wild)) return -1;
+    for (const [rank, cards] of C.groupCounts(hand)) {
+      if (rank <= 15 && cards.length === 3) return rank;
+    }
+    return -1;
+  }
+
+  const ATTACH_TYPES = ['triple1', 'triple2', 'plane1', 'plane2', 'four2', 'four2p'];
+
+  /** 用大牌（K / A / 2 / 王）当带牌的代价 */
+  function attachmentPenalty(move) {
+    if (!ATTACH_TYPES.includes(move.info.type)) return 0;
+    const counts = new Map();
+    for (const c of move.cards) counts.set(c.rank, (counts.get(c.rank) || 0) + 1);
+    let penalty = 0;
+    for (const [rank, n] of counts) {
+      if (n >= 3) continue; // 主牌（三张 / 四张 / 飞机主体）
+      if (rank >= 16) penalty += 24;
+      else if (rank === 15) penalty += 18;
+      else if (rank === 14) penalty += 12;
+      else if (rank === 13) penalty += 4;
+    }
+    return penalty;
+  }
+
   /** 是否从四张相同的牌里抽了一部分（拆炸弹） */
   function usesPartialBomb(hand, move) {
     const groups = C.groupCounts(hand);
@@ -296,6 +323,7 @@
     for (const m of pool) {
       let score = moveCost(m);
       score += structurePenalty(plan, m) * 4;
+      score += attachmentPenalty(m);
       // 敌人不紧张时，A / 2 / 王 留作控场
       if (enemyMin > 3 && m.info.rank >= 14) score += 10;
       score += Math.random() * 0.9;
@@ -340,6 +368,9 @@
     const nextCount = ctx.counts[next];
     const enemyMin = minEnemyCount(ctx);
     const danger = enemyMin <= 2;
+    const bombRank = wildBombRank(hand);
+    const bombReady = bombRank >= 0;
+    const pressing = danger || hand.length <= 6;
 
     // ---------- 跟牌 ----------
     if (lastPlay) {
@@ -357,20 +388,33 @@
         // 队友出牌：默认让牌，但自己更有把握时接管，避免「一手都不出」
         if (!pool.length) return null;
 
+        // 留着花牌凑炸弹、也不用大牌当带牌
+        let teamPool = pool;
+        if (bombReady) {
+          const keep = teamPool.filter(
+            (m) => !m.cards.some((c) => c.wild || c.rank === bombRank)
+          );
+          if (keep.length) teamPool = keep;
+          else return null;
+        }
+        const cleanPool = teamPool.filter((m) => attachmentPenalty(m) === 0);
+        if (cleanPool.length) teamPool = cleanPool;
+        else return null;
+
         // 1) 出完这手只剩两手牌：接管，争取自己先走完
         let bestLeft = Infinity;
-        for (const m of pool) {
+        for (const m of teamPool) {
           const left = groupCount(decompose(C.removeCards(hand, m.cards)));
           if (left < bestLeft) bestLeft = left;
         }
         if (bestLeft <= 2) {
-          const winners = pool.filter(
+          const winners = teamPool.filter(
             (m) => groupCount(decompose(C.removeCards(hand, m.cards))) === bestLeft
           );
           return pickCheapest(plan, winners, enemyMin);
         }
 
-        const cheap = pickCheapest(plan, pool, enemyMin);
+        const cheap = pickCheapest(plan, teamPool, enemyMin);
         if (!cheap) return null;
         const clean = structurePenalty(plan, cheap) === 0;
         const myCount = hand.length;
@@ -387,12 +431,26 @@
       }
 
       if (pool.length) {
+        let usable = pool;
+        // 手里能凑炸弹：花牌和三张都留着，不拆不花
+        if (bombReady) {
+          const keep = usable.filter(
+            (m) => !m.cards.some((c) => c.wild || c.rank === bombRank)
+          );
+          if (keep.length) usable = keep;
+          else if (!pressing) return null;
+        }
+        // 不为跟一手而拿 K / A / 2 / 王 当带牌
+        const cleanPool = usable.filter((m) => attachmentPenalty(m) === 0);
+        if (cleanPool.length) usable = cleanPool;
+        else if (!pressing) return null;
+
         // 下家只剩一两张牌：用最大的牌封堵，别让他接手
         if (danger && nextIsEnemy && nextCount <= 2) {
-          const sorted = pool.slice().sort((a, b) => C.movePower(b) - C.movePower(a));
+          const sorted = usable.slice().sort((a, b) => C.movePower(b) - C.movePower(a));
           return sorted[0];
         }
-        return pickCheapest(plan, pool, enemyMin);
+        return pickCheapest(plan, usable, enemyMin);
       }
 
       // 只剩炸弹 / 王炸：阻断对手、快走完、或炸完下一手能走完时才用
@@ -406,13 +464,21 @@
 
     // ---------- 领出 ----------
     let pool = leadOptions(plan);
-    if (hand.some((c) => c.wild)) {
+    if (hand.some((c) => c.wild) && !bombReady) {
       // 花牌可以补顺子 / 对子 / 三张等，加入这些含花候选
       const wildMoves = candidates.filter(
         (m) => m.cards.some((c) => c.wild) &&
-          m.info.type !== 'bomb' && m.info.type !== 'rocket'
+          m.info.type !== 'bomb' && m.info.type !== 'rocket' &&
+          attachmentPenalty(m) === 0
       );
       pool = pool.concat(wildMoves);
+    }
+    if (bombReady) {
+      // 花牌 + 三张留着凑炸弹，不拆散、不当普通牌打出去
+      const keep = pool.filter(
+        (m) => !m.cards.some((c) => c.wild || c.rank === bombRank)
+      );
+      if (keep.length) pool = keep;
     }
     if (!pool.length) {
       // 手上只剩炸弹 / 王炸
