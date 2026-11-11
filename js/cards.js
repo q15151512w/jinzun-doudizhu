@@ -14,7 +14,7 @@
 
   const LABELS = {
     3: '3', 4: '4', 5: '5', 6: '6', 7: '7', 8: '8', 9: '9', 10: '10',
-    11: 'J', 12: 'Q', 13: 'K', 14: 'A', 15: '2', 16: '小王', 17: '大王'
+    11: 'J', 12: 'Q', 13: 'K', 14: 'A', 15: '2', 16: '小王', 17: '大王', 18: '花'
   };
 
   const TYPE_NAMES = {
@@ -44,6 +44,8 @@
     }
     deck.push({ id: id++, rank: 16, label: '小王', suit: '★', red: false, order: 0, joker: true });
     deck.push({ id: id++, rank: 17, label: '大王', suit: '★', red: true, order: 0, joker: true });
+    // 花牌：万能牌，可代替 3~2 的任意点数（不能当王）
+    deck.push({ id: id++, rank: 18, label: '花', suit: '✿', red: true, order: 0, joker: false, wild: true });
     return deck;
   }
 
@@ -89,10 +91,10 @@
   const WING_ORDER = { plane: 0, plane1: 1, plane2: 2 };
 
   /**
-   * 识别一组牌的牌型。
+   * 识别不含花牌的一组牌。
    * @returns {{type:string,name:string,rank:number,length:number,seq:number}|null}
    */
-  function analyze(input) {
+  function analyzePlain(input) {
     if (!input || input.length === 0) return null;
     const cards = sortCards(input);
     const n = cards.length;
@@ -202,6 +204,38 @@
     return best;
   }
 
+  /**
+   * 识别一组牌的牌型。含花牌（万能牌）时枚举其替代点数，
+   * 取「最强合法解读」（炸弹优先，其次点数高的解读）。
+   * @returns {{type:string,name:string,rank:number,length:number,seq:number}|null}
+   */
+  function analyze(input) {
+    if (!input || input.length === 0) return null;
+    const wilds = input.filter((c) => c.wild);
+    if (!wilds.length) return analyzePlain(input);
+
+    const rest = input.filter((c) => !c.wild);
+    let best = null;
+    let bestPower = -Infinity;
+
+    // 花牌只能代替 3..2，不能当大小王
+    for (let r = 3; r <= 15; r++) {
+      const virtual = rest.concat(wilds.map((w) => ({
+        ...w, wild: false, rank: r, label: LABELS[r]
+      })));
+      const inf = analyzePlain(virtual);
+      if (!inf) continue;
+      const power = inf.type === 'rocket' ? 900
+        : inf.type === 'bomb' ? 800 + inf.rank
+        : inf.rank * 10 + inf.length;
+      if (power > bestPower) {
+        bestPower = power;
+        best = inf;
+      }
+    }
+    return best;
+  }
+
   /** a 能否压过 b（b 为上一次出牌的信息，可为 null） */
   function beats(a, b) {
     if (!a) return false;
@@ -232,9 +266,9 @@
   }
 
   /**
-   * 从手牌中枚举所有合法出牌（每种牌型给出若干带牌选择）。
+   * 从「不含花牌」的手牌中枚举所有合法出牌（每种牌型给出若干带牌选择）。
    */
-  function generateMoves(hand) {
+  function generatePlain(hand) {
     if (!hand || !hand.length) return [];
     const moves = [];
     const groups = groupCounts(hand);
@@ -352,6 +386,46 @@
         seen.add(key);
         out.push(m);
       }
+    }
+    return sortByPower(out);
+  }
+
+  /**
+   * 枚举手牌的全部合法出牌。含花牌时逐一枚举其替代点数，
+   * 收集所有「用上花牌」的组合，并与不含花牌的组合去重合并。
+   */
+  function generateMoves(hand) {
+    if (!hand || !hand.length) return [];
+    const wilds = hand.filter((c) => c.wild);
+    if (!wilds.length) return generatePlain(hand);
+
+    const rest = hand.filter((c) => !c.wild);
+    const wildIds = new Set(wilds.map((w) => w.id));
+    const byId = new Map(wilds.map((w) => [w.id, w]));
+    const raw = generatePlain(rest);
+
+    for (let r = 3; r <= 15; r++) {
+      const virtual = rest.concat(wilds.map((w) => ({
+        ...w, wild: false, rank: r, label: LABELS[r]
+      })));
+      for (const m of generatePlain(virtual)) {
+        if (!m.cards.some((c) => wildIds.has(c.id))) continue;
+        raw.push({
+          cards: sortCards(m.cards.map((c) => byId.get(c.id) || c)),
+          info: m.info
+        });
+      }
+    }
+
+    const seen = new Set();
+    const out = [];
+    for (const m of raw) {
+      const key =
+        m.cards.map((c) => c.id).sort((a, b) => a - b).join(',') +
+        '|' + m.info.type + '|' + m.info.rank + '|' + m.info.length;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(m);
     }
     return sortByPower(out);
   }
