@@ -44,7 +44,7 @@
     }
     deck.push({ id: id++, rank: 16, label: '小王', suit: '★', red: false, order: 0, joker: true });
     deck.push({ id: id++, rank: 17, label: '大王', suit: '★', red: true, order: 0, joker: true });
-    // 花牌：万能牌，可代替 3~2 的任意点数（不能当王）
+    // 花牌：万能牌，可代替 3~2 的任意点数；与双王一起可组成王炸
     deck.push({ id: id++, rank: 18, label: '花', suit: '✿', red: true, order: 0, joker: false, wild: true });
     return deck;
   }
@@ -214,11 +214,17 @@
     const wilds = input.filter((c) => c.wild);
     if (!wilds.length) return analyzePlain(input);
 
+    // 花牌 + 小王 + 大王 = 王炸
+    if (input.length === 3) {
+      const ranks = new Set(input.map((c) => c.rank));
+      if (ranks.has(16) && ranks.has(17)) return info('rocket', 17, 3, 0);
+    }
+
     const rest = input.filter((c) => !c.wild);
     let best = null;
     let bestPower = -Infinity;
 
-    // 花牌只能代替 3..2，不能当大小王
+    // 花牌替代 3..2；大王 / 小王只参与上面的王炸特例
     for (let r = 3; r <= 15; r++) {
       const virtual = rest.concat(wilds.map((w) => ({
         ...w, wild: false, rank: r, label: LABELS[r]
@@ -403,6 +409,16 @@
     const wildIds = new Set(wilds.map((w) => w.id));
     const byId = new Map(wilds.map((w) => [w.id, w]));
     const raw = generatePlain(rest);
+
+    // 花牌 + 小王 + 大王 = 王炸
+    const smallJoker = rest.find((c) => c.rank === 16);
+    const bigJoker = rest.find((c) => c.rank === 17);
+    if (smallJoker && bigJoker) {
+      raw.push({
+        cards: sortCards([wilds[0], smallJoker, bigJoker]),
+        info: info('rocket', 17, 3, 0)
+      });
+    }
 
     for (let r = 3; r <= 15; r++) {
       const virtual = rest.concat(wilds.map((w) => ({
