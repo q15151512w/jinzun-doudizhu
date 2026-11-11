@@ -331,32 +331,34 @@
       const pool = keepBomb.length ? keepBomb : nonBomb;
 
       if (fromTeammate) {
-        // 队友出牌：默认让牌；只有自己快走完时才接管节奏
+        // 队友出牌：默认让牌，但自己更有把握时接管，避免「一手都不出」
         if (!pool.length) return null;
-        let best = null;
+
+        // 1) 出完这手只剩两手牌：接管，争取自己先走完
         let bestLeft = Infinity;
         for (const m of pool) {
           const left = groupCount(decompose(C.removeCards(hand, m.cards)));
-          if (left < bestLeft) {
-            bestLeft = left;
-            best = m;
-          }
+          if (left < bestLeft) bestLeft = left;
         }
-        if (best && bestLeft <= 2) {
-          // 在能「两轮内走完」的牌里挑代价最低的一手
+        if (bestLeft <= 2) {
           const winners = pool.filter(
             (m) => groupCount(decompose(C.removeCards(hand, m.cards))) === bestLeft
           );
           return pickCheapest(plan, winners, enemyMin);
         }
-        // 手牌强势、队友只出了小牌：偶尔接管节奏，主动缩减手数
-        if (
-          lastInfo.rank <= 10 &&
-          evaluateHand(hand) >= 8.5 &&
-          Math.random() < 0.35
-        ) {
-          const cheap = pickCheapest(plan, pool, enemyMin);
-          if (cheap && structurePenalty(plan, cheap) === 0) return cheap;
+
+        const cheap = pickCheapest(plan, pool, enemyMin);
+        if (!cheap) return null;
+        const clean = structurePenalty(plan, cheap) === 0;
+        const myCount = hand.length;
+        const mateCount = ctx.counts[ctx.lastPlayer];
+
+        // 2) 自己明显比队友更接近走完（少 3 张以上）：接管节奏
+        if (clean && myCount + 3 <= mateCount) return cheap;
+
+        // 3) 队友只出了小牌、自己接得动且代价不高：经常抢一次节奏
+        if (clean && lastInfo.rank <= 10 && cheap.info.rank <= 12 && Math.random() < 0.65) {
+          return cheap;
         }
         return null;
       }
