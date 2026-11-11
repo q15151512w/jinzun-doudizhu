@@ -202,6 +202,14 @@
     }
   }
 
+  /** 标记花牌持有者（名字旁的「花」徽标） */
+  function renderFlowerMark(holder) {
+    dom.meFlower.classList.toggle('show', holder === HUMAN);
+    for (const idx of [1, 2]) {
+      oppUI[idx].flower.classList.toggle('show', holder === idx);
+    }
+  }
+
   function renderBottomCards(faceUp) {
     const cards = faceUp ? C.sortCardsDesc(state.bottom) : state.bottom;
     dom.bcRow.innerHTML = cards.map((card) => {
@@ -388,6 +396,7 @@
     const flowerHolder = Math.floor(Math.random() * 3);
     state.players[flowerHolder].hand =
       C.sortCards([...state.players[flowerHolder].hand, flower]);
+    renderFlowerMark(flowerHolder);
 
     renderHand(true);
     updateCounts();
@@ -407,7 +416,7 @@
 
     showToast(
       `${flowerHolder === HUMAN ? '你' : NAMES[flowerHolder]}摸到花牌（万能牌） · 抢地主每次翻倍`,
-      2600
+      3400
     );
 
     if (starter === HUMAN) {
@@ -958,6 +967,7 @@
       turnStatus: $('turnStatus'),
       meAvatar: $('meAvatar'),
       meRole: $('meRole'),
+      meFlower: $('meFlower'),
       toast: $('toast'),
       table: $('table'),
       startOverlay: $('startOverlay'),
@@ -987,6 +997,7 @@
       avatar: $('oppLeftAvatar'),
       name: $('oppLeftName'),
       role: $('oppLeftRole'),
+      flower: $('oppLeftFlower'),
       count: $('oppLeftCount'),
       speech: $('oppLeftSpeech')
     };
@@ -994,6 +1005,7 @@
       avatar: $('oppRightAvatar'),
       name: $('oppRightName'),
       role: $('oppRightRole'),
+      flower: $('oppRightFlower'),
       count: $('oppRightCount'),
       speech: $('oppRightSpeech')
     };

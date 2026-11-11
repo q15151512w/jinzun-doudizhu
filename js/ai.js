@@ -254,6 +254,27 @@
           pairs.find((x) => x.cards[0].rank <= 10);
         if (kicker) add(g.cards.concat(kicker.cards));
         add(g.cards.slice());
+      } else if (g.kind === 'chain') {
+        add(g.cards.slice());
+        // 飞机尽量带上小牌，一次多走几张，少出单张
+        const info = C.analyze(g.cards);
+        if (info && info.type === 'plane') {
+          const len = info.seq;
+          const lowSingles = [];
+          for (const s of singles) {
+            if (s.cards[0].rank <= 10) lowSingles.push(...s.cards);
+          }
+          if (lowSingles.length >= len) {
+            add(g.cards.concat(lowSingles.slice(0, len)));
+          }
+          const lowPairs = [];
+          for (const p of pairs) {
+            if (p.cards[0].rank <= 10) lowPairs.push(...p.cards);
+          }
+          if (lowPairs.length >= 2 * len) {
+            add(g.cards.concat(lowPairs.slice(0, 2 * len)));
+          }
+        }
       } else {
         add(g.cards.slice());
       }
@@ -261,9 +282,11 @@
     return options;
   }
 
-  /** 领出牌的优先级：点数越低越先出，同时奖励一次多出几张（快速减手） */
+  /** 领出牌的优先级：点数越低越先出，多张组合优先，单张适当押后 */
   function leadValue(move) {
-    return move.info.rank - move.cards.length * 1.4 + Math.random() * 1.0;
+    let value = move.info.rank - move.cards.length * 1.8;
+    if (move.info.type === 'single') value += 6.0;
+    return value + Math.random() * 1.0;
   }
 
   /** 跟牌时挑代价最小的一手：低牌优先、不拆结构、少动 A / 2 / 王 */

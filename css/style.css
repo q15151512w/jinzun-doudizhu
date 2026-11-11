@@ -630,6 +630,26 @@ svg { display: block; }
 }
 .card.flower .c-suit { color: #a06b24; }
 
+/* flower holder badge */
+.flower-mark {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 19px;
+  height: 19px;
+  margin-left: 6px;
+  border-radius: 50%;
+  border: 1px solid #c9a35f;
+  background: radial-gradient(circle at 30% 25%, #fff6dd, #e3c98f 62%, #c9a35f);
+  color: #6d4713;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+  box-shadow: 0 0 10px rgba(217, 184, 120, 0.4);
+}
+.flower-mark.show { display: inline-flex; }
+
 /* card back */
 .card-back {
   position: relative;
