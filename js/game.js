@@ -45,8 +45,6 @@
     selected: new Set(),
     hints: [],
     hintIndex: 0,
-    hintInfo: null,
-    hintKey: '',
     fresh: new Set(),
     chips: initialChips,
     rounds: Number.isFinite(saved.rounds) ? saved.rounds : 0,
@@ -89,7 +87,6 @@
     const classes = ['card'];
     if (card.red) classes.push('red');
     if (card.joker) classes.push('joker');
-    if (card.wild) classes.push('flower');
     if (card.label === '10') classes.push('low');
     if (opts.extra) classes.push(opts.extra);
     const styleAttr = opts.style ? ` style="${opts.style}"` : '';
@@ -316,12 +313,6 @@
     return hand.filter((c) => state.selected.has(c.id));
   }
 
-  /** 当前选牌的牌型：优先沿用「提示」给出的花牌解读 */
-  function currentSelectionInfo(cards) {
-    if (state.hintInfo && state.hintKey === C.cardKey(cards)) return state.hintInfo;
-    return C.analyze(cards);
-  }
-
   function updateSelectionStatus() {
     if (state.phase !== 'playing' || state.current !== HUMAN) return;
     const cards = selectedCards();
@@ -329,7 +320,7 @@
       setTurnStatus(state.lastPlay ? '轮到你出牌' : '由你先出牌', true);
       return;
     }
-    const info = currentSelectionInfo(cards);
+    const info = C.analyze(cards);
     if (!info) {
       setTurnStatus(`已选 ${cards.length} 张 · 牌型不成立`, true);
     } else if (state.lastPlay && !C.beats(info, state.lastPlay.info)) {
@@ -368,8 +359,6 @@
     state.selected.clear();
     state.hints = [];
     state.hintIndex = 0;
-    state.hintInfo = null;
-    state.hintKey = '';
     state.fresh.clear();
 
     clearAllZones();
@@ -377,17 +366,11 @@
       oppUI[idx].speech.classList.remove('show');
     }
 
-    // 54 张常规牌发三家 + 底牌，花牌（万能牌）随机落入一人手中
-    const fullDeck = C.createDeck();
-    const flower = fullDeck.find((c) => c.wild);
-    const deck = C.shuffle(fullDeck.filter((c) => !c.wild));
+    const deck = C.shuffle(C.createDeck());
     for (let i = 0; i < 3; i++) {
       state.players[i].hand = C.sortCards(deck.slice(i * 17, i * 17 + 17));
     }
     state.bottom = deck.slice(51);
-    const flowerHolder = Math.floor(Math.random() * 3);
-    state.players[flowerHolder].hand =
-      C.sortCards([...state.players[flowerHolder].hand, flower]);
 
     renderHand(true);
     updateCounts();
@@ -589,8 +572,6 @@
     state.selected.clear();
     state.hints = [];
     state.hintIndex = 0;
-    state.hintInfo = null;
-    state.hintKey = '';
     syncSelection();
 
     const idx = state.current;
@@ -622,24 +603,23 @@
     later(() => {
       if (state.phase !== 'playing' || state.current !== idx) return;
       if (move && C.beats(move.info, state.lastPlay ? state.lastPlay.info : null)) {
-        commitPlay(idx, move.cards, move.info);
+        commitPlay(idx, move.cards);
       } else if (state.lastPlay) {
         doPass(idx);
       } else {
         // 理论上不会发生：领出必须有牌可出
         const fallback = C.generateMoves(player.hand);
-        if (fallback.length) commitPlay(idx, fallback[0].cards, fallback[0].info);
+        if (fallback.length) commitPlay(idx, fallback[0].cards);
       }
     }, delay);
   }
 
   /* ------------------------- actions ------------------------- */
 
-  function commitPlay(idx, cards, declaredInfo) {
+  function commitPlay(idx, cards) {
     if (state.phase !== 'playing') return;
     const player = state.players[idx];
-    // AI 会传入花牌的具体解读；玩家选牌时自动取最强合法解读
-    const info = declaredInfo || C.analyze(cards);
+    const info = C.analyze(cards);
     if (!info) {
       if (idx === HUMAN) showToast('不是有效牌型');
       return;
@@ -703,8 +683,6 @@
 
     if (idx === HUMAN) {
       state.selected.clear();
-      state.hintInfo = null;
-      state.hintKey = '';
       syncSelection();
     }
 
@@ -721,7 +699,7 @@
       showToast('请先选牌');
       return;
     }
-    const info = currentSelectionInfo(cards);
+    const info = C.analyze(cards);
     if (!info) {
       showToast('这副牌型不成立');
       return;
@@ -731,7 +709,7 @@
       return;
     }
     S.click();
-    commitPlay(HUMAN, cards, info);
+    commitPlay(HUMAN, cards);
   }
 
   function humanPass() {
@@ -760,8 +738,6 @@
     const move = state.hints[state.hintIndex % state.hints.length];
     state.hintIndex++;
     state.selected = new Set(move.cards.map((c) => c.id));
-    state.hintInfo = move.info;
-    state.hintKey = C.cardKey(move.cards);
     syncSelection();
     S.select();
     showToast(`提示 · ${move.info.name}`);
@@ -1032,8 +1008,6 @@
       const id = Number(el.dataset.id);
       if (state.selected.has(id)) state.selected.delete(id);
       else state.selected.add(id);
-      state.hintInfo = null;
-      state.hintKey = '';
       el.classList.toggle('selected', state.selected.has(id));
       updateHandSelectionClass();
       S.select();

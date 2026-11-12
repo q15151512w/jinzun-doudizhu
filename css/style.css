@@ -608,28 +608,6 @@ svg { display: block; }
 }
 .card.joker .c-suit { font-size: calc(var(--cw) * 0.15); }
 
-/* flower (wildcard) */
-.card.flower {
-  background: linear-gradient(152deg, #fffaf0 0%, #f7e6c0 48%, #e8cf9d 100%);
-  border-color: #c9a35f;
-  color: #8a5a1f;
-}
-.card.flower::before {
-  content: "";
-  position: absolute;
-  inset: 4.5%;
-  border: 1px solid rgba(143, 116, 68, 0.36);
-  border-radius: calc(var(--cw) * 0.04);
-  pointer-events: none;
-  z-index: 2;
-}
-.card.flower .c-mid {
-  font-size: calc(var(--cw) * 0.5);
-  color: #a06b24;
-  text-shadow: 0 0 10px rgba(201, 163, 95, 0.45);
-}
-.card.flower .c-suit { color: #a06b24; }
-
 /* card back */
 .card-back {
   position: relative;

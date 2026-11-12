@@ -32,8 +32,6 @@
       else if (n === 3) score += 0.8;
     }
     if (groups.has(16) && groups.has(17)) score += 2.5;
-    // 花牌（万能牌）可补任意牌型
-    score += hand.filter((c) => c.wild).length * 2.8;
 
     // 顺子潜力
     const ranks = Array.from(groups.keys()).filter((r) => r <= 14).sort((a, b) => a - b);
@@ -73,15 +71,6 @@
     const s = evaluateHand(hand);
     const threshold = 5.2 + robCount * 1.4;
     return s >= threshold - Math.random() * 0.7;
-  }
-
-  /** 花牌是否能补齐炸弹：有三张同点 + 花牌时返回该点数，否则 -1 */
-  function wildBombRank(hand) {
-    if (!hand.some((c) => c.wild)) return -1;
-    for (const [rank, cards] of C.groupCounts(hand)) {
-      if (rank <= 15 && cards.length === 3) return rank;
-    }
-    return -1;
   }
 
   const ATTACH_TYPES = ['triple1', 'triple2', 'plane1', 'plane2', 'four2', 'four2p'];
@@ -201,7 +190,6 @@
     for (let r = 3; r <= 15; r++) m.set(r, 4);
     m.set(16, 1);
     m.set(17, 1);
-    m.set(18, 1); // 花牌
     return m;
   })();
 
@@ -218,11 +206,10 @@
   function isUnbeatable(move, unseen) {
     const type = move.info.type;
     const rank = move.info.rank;
-    const wild = unseen.get(18) > 0;
     if (type === 'rocket') return true;
     if (type === 'bomb') {
       for (const [r, n] of unseen) {
-        if (r > rank && (n >= 4 || (wild && n >= 3))) return false;
+        if (r > rank && n >= 4) return false;
       }
       return !(unseen.get(16) > 0 && unseen.get(17) > 0);
     }
@@ -232,8 +219,6 @@
         if (n >= 4) return false;
       }
       if (unseen.get(16) > 0 && unseen.get(17) > 0) return false;
-      // 花牌可以补成任意单张 / 对子（点数不超过 2）
-      if (wild && rank < 15) return false;
       const need = type === 'pair' ? 2 : 1;
       for (const [r, n] of unseen) {
         if (r > rank && n >= need) return false;
@@ -368,8 +353,6 @@
     const nextCount = ctx.counts[next];
     const enemyMin = minEnemyCount(ctx);
     const danger = enemyMin <= 2;
-    const bombRank = wildBombRank(hand);
-    const bombReady = bombRank >= 0;
     const pressing = danger || hand.length <= 6;
 
     // ---------- 跟牌 ----------
@@ -388,15 +371,8 @@
         // 队友出牌：默认让牌，但自己更有把握时接管，避免「一手都不出」
         if (!pool.length) return null;
 
-        // 留着花牌凑炸弹、也不用大牌当带牌
+        // 不用大牌当带牌
         let teamPool = pool;
-        if (bombReady) {
-          const keep = teamPool.filter(
-            (m) => !m.cards.some((c) => c.wild || c.rank === bombRank)
-          );
-          if (keep.length) teamPool = keep;
-          else return null;
-        }
         const cleanPool = teamPool.filter((m) => attachmentPenalty(m) === 0);
         if (cleanPool.length) teamPool = cleanPool;
         else return null;
@@ -432,14 +408,6 @@
 
       if (pool.length) {
         let usable = pool;
-        // 手里能凑炸弹：花牌和三张都留着，不拆不花
-        if (bombReady) {
-          const keep = usable.filter(
-            (m) => !m.cards.some((c) => c.wild || c.rank === bombRank)
-          );
-          if (keep.length) usable = keep;
-          else if (!pressing) return null;
-        }
         // 不为跟一手而拿 K / A / 2 / 王 当带牌
         const cleanPool = usable.filter((m) => attachmentPenalty(m) === 0);
         if (cleanPool.length) usable = cleanPool;
@@ -464,22 +432,6 @@
 
     // ---------- 领出 ----------
     let pool = leadOptions(plan);
-    if (hand.some((c) => c.wild) && !bombReady) {
-      // 花牌可以补顺子 / 对子 / 三张等，加入这些含花候选
-      const wildMoves = candidates.filter(
-        (m) => m.cards.some((c) => c.wild) &&
-          m.info.type !== 'bomb' && m.info.type !== 'rocket' &&
-          attachmentPenalty(m) === 0
-      );
-      pool = pool.concat(wildMoves);
-    }
-    if (bombReady) {
-      // 花牌 + 三张留着凑炸弹，不拆散、不当普通牌打出去
-      const keep = pool.filter(
-        (m) => !m.cards.some((c) => c.wild || c.rank === bombRank)
-      );
-      if (keep.length) pool = keep;
-    }
     if (!pool.length) {
       // 手上只剩炸弹 / 王炸
       pool = C.generateMoves(hand);
